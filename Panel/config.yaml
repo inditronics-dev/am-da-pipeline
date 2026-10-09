@@ -1,0 +1,190 @@
+# ============================================================
+# RIM / RAKING CONFIGURATION
+# ============================================================
+
+raking:
+  tolerance: 0.0001
+  max_iterations: 50
+
+  columns:
+    gender: "Sex"
+    age: "Weighted_Age_Group"
+    sub_age: "Sub_Age_Group"
+
+
+# ============================================================
+# CITY BENCHMARKS
+# ============================================================
+
+city_benchmarks:
+
+  Yerevan:
+
+    population:
+      total: 1136300
+
+    gender_targets:
+      Male: 0.44785
+      Female: 0.55215
+
+    age_gender_targets:
+
+      3-17_Male: 0.07015
+      18-20_Male: 0.01515
+      21-29_Male: 0.04907
+      30-39_Male: 0.07003
+      40-49_Male: 0.06663
+      50-59_Male: 0.05160
+      60+_Male: 0.12522
+
+      3-17_Female: 0.08649
+      18-20_Female: 0.01867
+      21-29_Female: 0.06050
+      30-39_Female: 0.08633
+      40-49_Female: 0.08215
+      50-59_Female: 0.06362
+      60+_Female: 0.15438
+
+    sub_age_gender_targets:
+
+      # Male
+      Age_group_3-7_Male: 0.01895
+      Age_group_8-12_Male: 0.02570
+      Age_group_13-17_Male: 0.02550
+      Age_group_18-19_Male: 0.00990
+      Age_group_20_Male: 0.00525
+      Age_group_21-24_Male: 0.02100
+      Age_group_25_Male: 0.00561
+      Age_group_26-29_Male: 0.02246
+      Age_group_30_Male: 0.00688
+      Age_group_31-34_Male: 0.02753
+      Age_group_35_Male: 0.00712
+      Age_group_36-39_Male: 0.02849
+      Age_group_40_Male: 0.00715
+      Age_group_41-44_Male: 0.02859
+      Age_group_45_Male: 0.00618
+      Age_group_46-49_Male: 0.02472
+      Age_group_50_Male: 0.00543
+      Age_group_51-54_Male: 0.02172
+      Age_group_55_Male: 0.00489
+      Age_group_56-59_Male: 0.01956
+      Age_group_60_Male: 0.00627
+      Age_group_61-64_Male: 0.02507
+      Age_group_65_Male: 0.00676
+      Age_group_66-69_Male: 0.02704
+      Age_group_70+_Male: 0.06009
+
+      # Female
+      Age_group_3-7_Female: 0.02337
+      Age_group_8-12_Female: 0.03168
+      Age_group_13-17_Female: 0.03144
+      Age_group_18-19_Female: 0.01220
+      Age_group_20_Female: 0.00647
+      Age_group_21-24_Female: 0.02589
+      Age_group_25_Female: 0.00692
+      Age_group_26-29_Female: 0.02769
+      Age_group_30_Female: 0.00849
+      Age_group_31-34_Female: 0.03394
+      Age_group_35_Female: 0.00878
+      Age_group_36-39_Female: 0.03513
+      Age_group_40_Female: 0.00881
+      Age_group_41-44_Female: 0.03525
+      Age_group_45_Female: 0.00762
+      Age_group_46-49_Female: 0.03047
+      Age_group_50_Female: 0.00669
+      Age_group_51-54_Female: 0.02678
+      Age_group_55_Female: 0.00603
+      Age_group_56-59_Female: 0.02412
+      Age_group_60_Female: 0.00773
+      Age_group_61-64_Female: 0.03091
+      Age_group_65_Female: 0.00833
+      Age_group_66-69_Female: 0.03333
+      Age_group_70+_Female: 0.07408
+
+
+  # ==========================================================
+  # REST OF ARMENIA
+  # ==========================================================
+
+  Rest_of_Armenia:
+
+    population:
+      total: 1931100
+
+    gender_targets:
+      Male: 0.48477
+      Female: 0.51523
+
+    age_gender_targets:
+
+      3-17_Male: 0.10247
+      18-20_Male: 0.01804
+      21-29_Male: 0.04965
+      30-39_Male: 0.07660
+      40-49_Male: 0.06445
+      50-59_Male: 0.05609
+      60+_Male: 0.11748
+
+      3-17_Female: 0.10890
+      18-20_Female: 0.01917
+      21-29_Female: 0.05277
+      30-39_Female: 0.08141
+      40-49_Female: 0.06850
+      50-59_Female: 0.05961
+      60+_Female: 0.12486
+
+    sub_age_gender_targets:
+
+      # Male
+      Age_group_3-7_Male: 0.03405
+      Age_group_8-12_Male: 0.03506
+      Age_group_13-17_Male: 0.03336
+      Age_group_18-19_Male: 0.01276
+      Age_group_20_Male: 0.00528
+      Age_group_21-24_Male: 0.02112
+      Age_group_25_Male: 0.00571
+      Age_group_26-29_Male: 0.02282
+      Age_group_30_Male: 0.00744
+      Age_group_31-34_Male: 0.02976
+      Age_group_35_Male: 0.00788
+      Age_group_36-39_Male: 0.03152
+      Age_group_40_Male: 0.00704
+      Age_group_41-44_Male: 0.02817
+      Age_group_45_Male: 0.00585
+      Age_group_46-49_Male: 0.02339
+      Age_group_50_Male: 0.00533
+      Age_group_51-54_Male: 0.02130
+      Age_group_55_Male: 0.00589
+      Age_group_56-59_Male: 0.02357
+      Age_group_60_Male: 0.00751
+      Age_group_61-64_Male: 0.03006
+      Age_group_65_Male: 0.00681
+      Age_group_66-69_Male: 0.02724
+      Age_group_70+_Male: 0.04586
+
+      # Female
+      Age_group_3-7_Female: 0.03619
+      Age_group_8-12_Female: 0.03726
+      Age_group_13-17_Female: 0.03546
+      Age_group_18-19_Female: 0.01356
+      Age_group_20_Female: 0.00561
+      Age_group_21-24_Female: 0.02245
+      Age_group_25_Female: 0.00606
+      Age_group_26-29_Female: 0.02426
+      Age_group_30_Female: 0.00791
+      Age_group_31-34_Female: 0.03163
+      Age_group_35_Female: 0.00837
+      Age_group_36-39_Female: 0.03350
+      Age_group_40_Female: 0.00749
+      Age_group_41-44_Female: 0.02994
+      Age_group_45_Female: 0.00621
+      Age_group_46-49_Female: 0.02486
+      Age_group_50_Female: 0.00566
+      Age_group_51-54_Female: 0.02264
+      Age_group_55_Female: 0.00626
+      Age_group_56-59_Female: 0.02505
+      Age_group_60_Female: 0.00799
+      Age_group_61-64_Female: 0.03195
+      Age_group_65_Female: 0.00724
+      Age_group_66-69_Female: 0.02895
+      Age_group_70+_Female: 0.04874

@@ -26,15 +26,22 @@ os.makedirs(EXTRACT_DIR, exist_ok=True)
 # ============================================================
 # BUILD EXPECTED FILE LIST (D-1 + D LOGIC)
 # ============================================================
-today = datetime.now().date()
-yesterday = today - timedelta(days=1)
+
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+today = (
+    datetime.strptime(run_date, "%Y-%m-%d") + timedelta(days=1)
+).date()
 
 # Reporting window: yesterday 02:00 to today 01:59
 download_plan = []
 
 # D-1 -> hours 02 to 23
 for hour in range(2, 24):
-    date_str = yesterday.strftime("%Y-%m-%d")
+    date_str = run_date
     hour_str = f"{hour:02d}"
     download_plan.append((date_str, hour_str))
 

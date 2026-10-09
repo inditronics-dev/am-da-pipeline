@@ -12,7 +12,12 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
-yesterday_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+run_date_obj = datetime.strptime(run_date, "%Y-%m-%d").date()
 INPUT_DIR = os.path.join(BASE_DIR, "sessions", "merging", "Final_merged_file")
 INPUT_PATTERN = "*.csv"  # Get all CSV files, we'll filter by date
 OUTPUT_DIR = os.path.join(BASE_DIR, "for_panel_files", "for_panel")
@@ -253,11 +258,11 @@ def process_file(file_path: str):
                 date_obj = datetime.strptime(first_date, "%Y-%m-%d")
                 date_str = date_obj.strftime("%Y-%m-%d")
             except:
-                date_str = yesterday_date
+                date_str = run_date
         else:
-            date_str = yesterday_date
+            date_str = run_date
     else:
-        date_str = yesterday_date
+        date_str = run_date
 
     output_file = os.path.join(OUTPUT_DIR, f"{date_str}_cleaned.csv")
 
@@ -278,10 +283,10 @@ def main():
     # --------------------------------------------------------
     # Get yesterday's date (as date object for comparison)
     # --------------------------------------------------------
-    yesterday = (datetime.now() - timedelta(days=1)).date()
-    yesterday_str = yesterday.strftime("%Y-%m-%d")  # For matching filenames
+    target_date = run_date_obj
+    target_date_str = run_date
 
-    print(f" Target date: {yesterday_str}")
+    print(f" Target date: {target_date_str}")
 
     # --------------------------------------------------------
     # Get all CSV files and filter for yesterday's date
@@ -296,7 +301,7 @@ def main():
         print(f"   Found: {fname}")
         file_date = extract_date_from_filename(fname)
 
-        if file_date == yesterday:
+        if file_date == target_date:
             files.append(file_path)
             print(f"       Matched: {fname}")
         else:
@@ -304,8 +309,8 @@ def main():
                 print(f"       Skipped (date: {file_date})")
 
     if not files:
-        print(f"\n No files found for {yesterday_str}")
-        print(f"   Expected filename pattern: *{yesterday_str}*.csv")
+        print(f"\n No files found for {target_date_str}")
+        print(f"   Expected filename pattern: *{target_date_str}*.csv")
         return
 
     print(f"\n {len(files)} file(s) found for processing")
@@ -316,7 +321,7 @@ def main():
     for file_path in sorted(files):
         process_file(file_path)
 
-    print("\n D-1 processing completed successfully.")
+    print(f"\n Processing for {run_date} completed successfully.")
 
 if __name__ == "__main__":
     main()

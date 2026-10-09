@@ -61,8 +61,7 @@ context_columns = ["chid", "chname", "s3_date", "hhid"]
 
 df[context_columns] = (
     df.groupby("device_id")[context_columns]
-      .ffill()
-      .bfill()
+      .transform(lambda x: x.ffill().bfill())
 )
 
 # ===============================

@@ -27,15 +27,32 @@ from s3_utils import upload_pipeline_output
 # ============================================================
 # DATE SETUP
 # ============================================================
-yesterday_obj = datetime.now() - timedelta(days=1)
+# ============================================================
+# DATE SETUP
+# ============================================================
+
+RUN_DATE = os.environ.get("RUN_DATE")
+
+if RUN_DATE:
+    try:
+        run_date_obj = datetime.strptime(RUN_DATE, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(
+            f"Invalid RUN_DATE format: {RUN_DATE}. "
+            "Expected format: YYYY-MM-DD"
+        )
+else:
+    # Default to D-1 if RUN_DATE is not supplied
+    run_date_obj = datetime.now() - timedelta(days=1)
 
 # Date formats used by different scripts for filenames
-date_ymd = yesterday_obj.strftime("%Y-%m-%d")   # 2026-05-07
-date_dmy = yesterday_obj.strftime("%d-%m-%Y")   # 07-05-2026
+date_ymd = run_date_obj.strftime("%Y-%m-%d")
+date_dmy = run_date_obj.strftime("%d-%m-%Y")
 
 # Date string for S3 folder (DD-MM-YYYY)
 s3_date = date_dmy
 
+print(f"RUN_DATE: {date_ymd}")
 print(f"Uploading outputs to S3 for date: {s3_date}")
 print(f"  YYYY-MM-DD filenames: {date_ymd}")
 print(f"  DD-MM-YYYY filenames: {date_dmy}")
@@ -54,6 +71,16 @@ UPLOADS = [
         "local": os.path.join("sessions", "logo", "household_viewership_memberwise_output", f"{date_ymd}_logo_sessions.csv"),
         "category": "logo",
         "filename": "logo_sessions.csv",
+    },
+    {
+        "local": os.path.join("sessions", "logo", "logo_events", f"{date_dmy}_logo_events.zip"),
+        "category": "logo",
+        "filename": "logo_events.zip",
+    },
+    {
+        "local": os.path.join("sessions", "logo", "household_viewership_output", f"{date_ymd}_hh_logo_sessions.csv"),
+        "category": "logo",
+        "filename": "hh_logo_sessions.csv",
     },
 
     # --- FP Sessions ---
@@ -90,7 +117,26 @@ UPLOADS = [
         "category": "merging",
         "filename": "Sessions_final_merged.csv",
     },
-
+    {
+        "local": os.path.join("sessions", "merging", "sessions_with_rejuvenation", f"{date_ymd}_Members_UpdatedLOGO_Summary.txt"),
+        "category": "merging",
+        "filename": "Logo.txt",
+    },
+    {
+        "local": os.path.join("sessions", "merging", "sessions_with_rejuvenation", f"{date_ymd}_Members_UpdatedFP_Summary.txt"),
+        "category": "merging",
+        "filename": "FP.txt",
+    },
+    {
+        "local": os.path.join("sessions", "merging", "HHID_Mapping_Script.xlsx"),
+        "category": "merging",
+        "filename": "HHID_Mapping_Script.xlsx",
+    },
+    {
+        "local": os.path.join("sessions", "Daily device_id hhid mapping","Mapping", f"{date_dmy}_hhid_device_id.csv"),
+        "category": "merging",
+        "filename": "Daily_device_id_hhid_mapping.csv",
+    },
     # --- For Panel: Cleaned file ---
     {
         "local": os.path.join("for_panel_files", "for_panel", f"{date_ymd}_cleaned.csv"),
@@ -103,7 +149,7 @@ UPLOADS = [
         "filename": "Panel.csv",
     },
     {
-        "local": os.path.join("Panel", "Panel Files", f"{date_dmy}_summary.csv"),
+        "local": os.path.join("Panel", "Panel Files", f"{date_dmy}_Summary.csv"),
         "category": "for_panel",
         "filename": "Panel_summary.csv",
     },
@@ -127,6 +173,11 @@ UPLOADS = [
         "local": os.path.join("statement_file", "statement", f"{date_ymd}_statement.csv"),
         "category": "statement",
         "filename": "statement.csv",
+    },
+    {
+        "local": os.path.join("Validation", "Data Validation Check Completed.xlsx"),
+        "category": "statement",
+        "filename": "Data Validation Check Completed.xlsx",
     },
 ]
 
@@ -206,21 +257,21 @@ print(f"  Deleted {deleted_inputs} FP input file(s)")
 # ============================================================
 # CLEANUP: DELETE FP INTERMEDIATE FILES 
 # ============================================================
-# print("\nCleaning up FP intermediate files...")
-# fp_output_dir = os.path.join(BASE_DIR, "sessions", "fp", "output")
-# fp_download_dir = os.path.join(BASE_DIR, "sessions", "fp", "downloads")
-# deleted_intermediate = 0
+print("\nCleaning up FP intermediate files...")
+fp_output_dir = os.path.join(BASE_DIR, "sessions", "fp", "output")
+fp_download_dir = os.path.join(BASE_DIR, "sessions", "fp", "downloads")
+deleted_intermediate = 0
 
-# for cleanup_dir in [fp_output_dir, fp_download_dir]:
-#     if os.path.exists(cleanup_dir):
-#         for f in glob.glob(os.path.join(cleanup_dir, "*.csv")):
-#             try:
-#                 os.remove(f)
-#                 deleted_intermediate += 1
-#             except Exception as e:
-#                 print(f"  Warning: Could not delete {f}: {e}")
+for cleanup_dir in [fp_output_dir, fp_download_dir]:
+    if os.path.exists(cleanup_dir):
+        for f in glob.glob(os.path.join(cleanup_dir, "*.csv")):
+            try:
+                os.remove(f)
+                deleted_intermediate += 1
+            except Exception as e:
+                print(f"  Warning: Could not delete {f}: {e}")
 
-# print(f"  Deleted {deleted_intermediate} intermediate file(s)")
+print(f"  Deleted {deleted_intermediate} intermediate file(s)")
 
 # ============================================================
 # CLEANUP: DELETE REJUVENATION AUDIT FILES

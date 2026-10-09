@@ -9,10 +9,14 @@ from datetime import datetime, timedelta
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-INPUT_FILE = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{yesterday}_ruled_PROCESSED.csv")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+INPUT_FILE = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{run_date}_ruled_PROCESSED.csv")
 OUTPUT_FOLDER = os.path.join(BASE_DIR, "statement_file", "statement")
-OUTPUT_FILE_NAME = f"{yesterday}_statement.csv"
+OUTPUT_FILE_NAME = f"{run_date}_statement.csv"
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 

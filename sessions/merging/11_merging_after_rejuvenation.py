@@ -6,15 +6,18 @@ import os
 # ===============================
 # CONFIG
 # ===============================
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 
-file1_csv = os.path.join(BASE_DIR, "sessions", "merging", "sessions_with_rejuvenation", f"{yesterday}_Members_UpdatedLOGO.csv")
-file2_csv = os.path.join(BASE_DIR, "sessions", "merging", "sessions_with_rejuvenation", f"{yesterday}_Members_UpdatedFP.csv")
+file1_csv = os.path.join(BASE_DIR, "sessions", "merging", "sessions_with_rejuvenation", f"{run_date}_Members_UpdatedLOGO.csv")
+file2_csv = os.path.join(BASE_DIR, "sessions", "merging", "sessions_with_rejuvenation", f"{run_date}_Members_UpdatedFP.csv")
 
-output_csv = os.path.join(BASE_DIR, "sessions", "merging", "Final_merged_file", f"{yesterday}_Sessions.csv")
+output_csv = os.path.join(BASE_DIR, "sessions", "merging", "Final_merged_file", f"{run_date}_Sessions.csv")
 
 # Ensure output directory exists
 os.makedirs(os.path.dirname(output_csv), exist_ok=True)

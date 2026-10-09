@@ -28,8 +28,12 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-RAW_FILE_PATH = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{yesterday}_ruled.csv")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+RAW_FILE_PATH = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{run_date}_ruled.csv")
 
 from dotenv import load_dotenv
 
@@ -181,7 +185,7 @@ cap_df['low_sample_cap sec'] = cap_df['absolute cap sec']
 
 excluded_channels = {
     'FirstNewsChannel','PublicTV',
-    'KentronTvHD','ArmeniaTV','ShantTV','ATV'
+    'KentronTvHD','ArmeniaTV','ShantTV'
 }
 
 def final_target(r):

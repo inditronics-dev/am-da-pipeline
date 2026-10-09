@@ -46,13 +46,18 @@ YEREVAN_TZ = timezone(timedelta(hours=4))
 # ==========================================================
 # STEP 0: BUILD EXPECTED FILE LIST (D-1 + D LOGIC)
 # ==========================================================
-today = datetime.now().date()
-yesterday = today - timedelta(days=1)
-expected_files = []
+# today = datetime.now().date()
+run_date = os.environ.get("RUN_DATE")
 
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+expected_files = []
+today = (
+    datetime.strptime(run_date, "%Y-%m-%d") + timedelta(days=1)
+).date()
 # D-1 -> hours 02 to 23
 for hour in range(2, 24):
-    fname = f"{yesterday}_{hour:02d}_matched.csv"
+    fname = f"{run_date}_{hour:02d}_matched.csv"
     expected_files.append(os.path.join(INPUT_DIR, fname))
 
 # D -> hours 00 and 01
@@ -146,12 +151,12 @@ WHERE m.meter_id >= 'IM000101'
   AND m.meter_id <= 'IM000600'
 ORDER BY ma.meter_id, ma.assigned_at DESC;
 """
-
+#the range of different meter_ids should be in the following range "IM000101" to "IM000600" as per the requirement if not specify.
 mapping_df = pd.read_sql(query, engine)
 engine.dispose()
 
 print(f"Fetched {len(mapping_df)} meter-household mappings")
-
+print(f"Unique meter_ids: {mapping_df['meter_id'].nunique()}")
 # ==========================================================
 # STEP 5: MAP device_id -> hhid
 # ==========================================================

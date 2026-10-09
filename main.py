@@ -1,16 +1,38 @@
 import subprocess
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+
+
+# ============================================================
+# IMPORT DATE UTILITY
+# ============================================================
+
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+from pipeline.date_utils import get_run_date
+
 
 # ============================================================
 # CONFIG: DEFINE YOUR PIPELINE ORDER HERE
 # ============================================================
+
 PIPELINE = [
     {
         "name": "Logo Sessions",
         "script": os.path.join("sessions", "logo", "01_sessions.py"),
+        "check_file": None
+    },
+    {
+        "name": "Logo Raw Events Storage",
+        "script": os.path.join("sessions", "logo", "0.1_raw_events_storage.py"),
+        "check_file": None
+    },
+
+    {
+        "name": "Logo Household Sessions",
+        "script": os.path.join("sessions", "logo", "0.3_HH_level_sessions.py"),
         "check_file": None
     },
     {
@@ -49,6 +71,11 @@ PIPELINE = [
         "check_file": None
     },
     {
+        "name": "device_id and hhid mapping",
+        "script": os.path.join("sessions", "Daily device_id hhid mapping", "0.2_daily_hhid_device_id_mapping.py"),
+        "check_file": None
+    },
+    {
         "name": "cleaning for history file",
         "script": os.path.join("sessions", "merging", "09_member_rejuvenation_FP.py"),
         "check_file": None
@@ -84,57 +111,177 @@ PIPELINE = [
         "check_file": None
     },
     {
-        "name": "statement file generation",
+        "name": "Panel file generation",
         "script": os.path.join("Panel", "16_panel.py"),
         "check_file": None
     },
+
+    # ========================================================
+    # VALIDATION STEPS
+    # ========================================================
+
+    {
+        "name": "Logo Validation",
+        "script": os.path.join("Validation", "Stage1_Logo_Checks.py"),
+        "check_file": None
+    },
+    {
+        "name": "FP Validation",
+        "script": os.path.join("Validation", "Stage1_FP_Checks.py"),
+        "check_file": None
+    },
+    {
+        "name": "Data Processing Validation",
+        "script": os.path.join(
+            "Validation",
+            "Stage2_Data_Processing_Checks.py"
+        ),
+        "check_file": None
+    },
+    {
+        "name": "Members Updation Checks",
+        "script": os.path.join(
+            "Validation",
+            "Stage2_Members_Updation_Checks.py"
+        ),
+        "check_file": None
+    },
+    {
+        "name": "Merged Data Checks",
+        "script": os.path.join(
+            "Validation",
+            "Stage2_Merged_Data_Checks.py"
+        ),
+        "check_file": None
+    },
+    {
+        "name": "Data Cleaning For Panel Checks",
+        "script": os.path.join(
+            "Validation",
+            "Stage2_Data_Cleaning_For_Panel_Checks.py"
+        ),
+        "check_file": None
+    },
+    {
+        "name": "Panel Checks",
+        "script": os.path.join(
+            "Validation",
+            "Panel_Validation_Checks.py"
+        ),
+        "check_file": None
+    },
+    {
+        "name": "3 Rules, Channel Clipping & Statement Checks",
+        "script": os.path.join(
+            "Validation",
+            "3rules_channel_clipping_statement.py"
+        ),
+        "check_file": None
+    },
+    
     {
         "name": "upload outputs to S3",
-        "script": os.path.join("pipeline", "17_upload_to_s3.py"),
+        "script": os.path.join(
+            "pipeline",
+            "17_upload_to_s3.py"
+        ),
         "check_file": None
+    }, 
+    
+    {
+            "name": "Sending validation Mail",
+            "script": os.path.join(
+                "Validation",
+                "sending_Mail.py"
+            ),
+            "check_file": None
     }
 ]
 
+
 LOG_FILE = os.path.join("pipeline", "pipeline_log.txt")
+
 
 # ============================================================
 # FUNCTION: LOGGING
 # ============================================================
+
 def log(message):
     log_dir = os.path.dirname(LOG_FILE)
+
     if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(message + "\n")
 
+
 # ============================================================
 # FUNCTION: RUN SCRIPT
 # ============================================================
-def run_step(step, step_index, run_id, broadcast):
-    broadcast(step_index, f"\nRunning: {step['name']}\n")
+
+def run_step(step, step_index, run_id, broadcast, run_date):
+
+    broadcast(
+        step_index,
+        f"\nRunning: {step['name']}\n"
+    )
+
     start_time = datetime.now()
 
-    from dashboard.models import create_step, update_step_status, append_step_log, update_run_status
-    step_id = create_step(run_id, step_index, step["name"])
+    from dashboard.models import (
+        create_step,
+        update_step_status,
+        append_step_log,
+        update_run_status
+    )
+
+    step_id = create_step(
+        run_id,
+        step_index,
+        step["name"]
+    )
 
     script_path = os.path.abspath(step["script"])
 
+    # ------------------------------------------------------------
+    # Check script exists
+    # ------------------------------------------------------------
+
     if not os.path.exists(script_path):
+
         msg = f"Script not found: {script_path}\n"
+
         append_step_log(step_id, msg)
         broadcast(step_index, msg, is_error=True)
-        update_step_status(step_id, "Failed")
-        update_run_status(run_id, "Failed", error_message=f"Script not found: {step['script']}")
+
+        update_step_status(
+            step_id,
+            "Failed"
+        )
+
+        update_run_status(
+            run_id,
+            "Failed",
+            error_message=f"Script not found: {step['script']}"
+        )
+
         raise Exception(msg)
 
-    env = os.environ.copy()
-    run_date = os.environ.get("RUN_DATE") or os.environ.get("WORKFLOW_DATE")
-    if not run_date:
-        run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    # ------------------------------------------------------------
+    # Prepare environment
+    # ------------------------------------------------------------
 
+    env = os.environ.copy()
+
+    # IMPORTANT:
+    # Every child script receives the SAME processing date.
     env["RUN_DATE"] = run_date
     env["WORKFLOW_DATE"] = run_date
+
+    # ------------------------------------------------------------
+    # Start subprocess
+    # ------------------------------------------------------------
 
     process = subprocess.Popen(
         [sys.executable, script_path],
@@ -147,71 +294,254 @@ def run_step(step, step_index, run_id, broadcast):
     )
 
     log_buffer = []
-    BUFFER_SIZE = 50  # adjust
+    BUFFER_SIZE = 50
+
+    # ------------------------------------------------------------
+    # Read process output
+    # ------------------------------------------------------------
 
     for line in iter(process.stdout.readline, ''):
+
         log_buffer.append(line)
 
         if len(log_buffer) >= BUFFER_SIZE:
+
             chunk = "".join(log_buffer)
-            append_step_log(step_id, chunk)
-            broadcast(step_index, chunk)
+
+            append_step_log(
+                step_id,
+                chunk
+            )
+
+            broadcast(
+                step_index,
+                chunk
+            )
+
             log_buffer = []
 
-    # flush remaining
+    # ------------------------------------------------------------
+    # Flush remaining output
+    # ------------------------------------------------------------
+
     if log_buffer:
+
         chunk = "".join(log_buffer)
-        append_step_log(step_id, chunk)
-        broadcast(step_index, chunk)
 
-        process.stdout.close()
-        return_code = process.wait()
+        append_step_log(
+            step_id,
+            chunk
+        )
 
-        end_time = datetime.now()
-        duration = end_time - start_time
+        broadcast(
+            step_index,
+            chunk
+        )
 
-        log(f"{step['name']} | Start: {start_time} | End: {end_time} | Duration: {duration} | Code: {return_code}")
+    process.stdout.close()
+
+    return_code = process.wait()
+
+    end_time = datetime.now()
+    duration = end_time - start_time
+
+    log(
+        f"{step['name']} | "
+        f"Run Date: {run_date} | "
+        f"Start: {start_time} | "
+        f"End: {end_time} | "
+        f"Duration: {duration} | "
+        f"Code: {return_code}"
+    )
+
+    # ------------------------------------------------------------
+    # Handle failure
+    # ------------------------------------------------------------
 
     if return_code != 0:
-        msg = f"Step failed with exit code {return_code}\n"
-        append_step_log(step_id, msg)
-        broadcast(step_index, msg, is_error=True)
-        update_step_status(step_id, "Failed")
-        update_run_status(run_id, "Failed", error_message=f"Step '{step['name']}' failed.")
-        raise Exception(f"Script failed: {script_path}")
+
+        msg = (
+            f"Step failed with exit code "
+            f"{return_code}\n"
+        )
+
+        append_step_log(
+            step_id,
+            msg
+        )
+
+        broadcast(
+            step_index,
+            msg,
+            is_error=True
+        )
+
+        update_step_status(
+            step_id,
+            "Failed"
+        )
+
+        update_run_status(
+            run_id,
+            "Failed",
+            error_message=f"Step '{step['name']}' failed."
+        )
+
+        raise Exception(
+            f"Script failed: {script_path}"
+        )
+
+    # ------------------------------------------------------------
+    # Check expected output
+    # ------------------------------------------------------------
 
     if step["check_file"]:
-        check_path = os.path.abspath(step["check_file"])
+
+        check_path = os.path.abspath(
+            step["check_file"]
+        )
+
         if not os.path.exists(check_path):
-            msg = f"Expected output not found: {check_path}\n"
-            append_step_log(step_id, msg)
-            broadcast(step_index, msg, is_error=True)
-            update_step_status(step_id, "Failed")
-            update_run_status(run_id, "Failed", error_message=f"Expected output missing for '{step['name']}'")
+
+            msg = (
+                f"Expected output not found: "
+                f"{check_path}\n"
+            )
+
+            append_step_log(
+                step_id,
+                msg
+            )
+
+            broadcast(
+                step_index,
+                msg,
+                is_error=True
+            )
+
+            update_step_status(
+                step_id,
+                "Failed"
+            )
+
+            update_run_status(
+                run_id,
+                "Failed",
+                error_message=(
+                    f"Expected output missing "
+                    f"for '{step['name']}'"
+                )
+            )
+
             raise Exception(msg)
 
-    update_step_status(step_id, "Success")
-    broadcast(step_index, f"Completed: {step['name']}\n")
+    # ------------------------------------------------------------
+    # Success
+    # ------------------------------------------------------------
+
+    update_step_status(
+        step_id,
+        "Success"
+    )
+
+    broadcast(
+        step_index,
+        f"Completed: {step['name']}\n"
+    )
+
 
 # ============================================================
 # MAIN EXECUTION
 # ============================================================
+
 if __name__ == "__main__":
-    from dashboard.models import init_db, create_run, update_run_status, get_run_details
+
+    from dashboard.models import (
+        init_db,
+        create_run,
+        update_run_status,
+        get_run_details
+    )
+
     import urllib.request
     import json
 
-    sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+    # ------------------------------------------------------------
+    # GET PROCESSING DATE
+    # ------------------------------------------------------------
+
+    # If running:
+    #
+    # python main.py 2026-08-26
+    #
+    # run_date = 2026-08-26
+    #
+    # If running:
+    #
+    # python main.py
+    #
+    # run_date = D-1
+
+    cli_date = None
+
+    if len(sys.argv) > 1:
+        cli_date = sys.argv[1]
+
+    try:
+
+        run_date = get_run_date(
+            cli_date
+        )
+
+    except ValueError as e:
+
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
+    # ------------------------------------------------------------
+    # SET ENVIRONMENT FOR ALL CHILD PROCESSES
+    # ------------------------------------------------------------
+
+    os.environ["RUN_DATE"] = run_date
+    os.environ["WORKFLOW_DATE"] = run_date
+
+    # ------------------------------------------------------------
+    # INITIALIZE DATABASE
+    # ------------------------------------------------------------
+
+    sys.path.insert(
+        0,
+        os.path.abspath(
+            os.path.dirname(__file__)
+        )
+    )
+
     init_db()
 
-    run_date = os.environ.get("RUN_DATE") or os.environ.get("WORKFLOW_DATE")
-    if not run_date:
-        run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    # ------------------------------------------------------------
+    # CREATE PIPELINE RUN
+    # ------------------------------------------------------------
 
-    run_id = create_run(run_date, trigger_type="cron")
+    run_id = create_run(
+        run_date,
+        trigger_type="manual" if cli_date else "cron"
+    )
 
-    def broadcast(step_index, message, is_error=False):
-        print(message, end="")
+    # ------------------------------------------------------------
+    # BROADCAST
+    # ------------------------------------------------------------
+
+    def broadcast(
+        step_index,
+        message,
+        is_error=False
+    ):
+
+        print(
+            message,
+            end=""
+        )
+
         sys.stdout.flush()
 
         payload = json.dumps({
@@ -219,45 +549,122 @@ if __name__ == "__main__":
             "step_index": step_index,
             "message": message,
             "is_error": is_error
-        }).encode('utf-8')
+        }).encode("utf-8")
 
         try:
+
             req = urllib.request.Request(
                 "http://127.0.0.1:5000/api/workflow/broadcast",
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json"
+                },
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=0.5):
+
+            with urllib.request.urlopen(
+                req,
+                timeout=0.5
+            ):
                 pass
+
         except Exception:
             pass
 
-    broadcast(-1, "\nStarting Pipeline Execution\n")
+    # ------------------------------------------------------------
+    # START PIPELINE
+    # ------------------------------------------------------------
+
+    broadcast(
+        -1,
+        f"\nStarting Pipeline Execution\n"
+        f"Processing Date: {run_date}\n\n"
+    )
 
     try:
-        # -----------------------------------
+
+        # ========================================================
         # PARALLEL: Step 0 and Step 1
-        # -----------------------------------
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_1 = executor.submit(run_step, PIPELINE[0], 0, run_id, broadcast)
-            future_2 = executor.submit(run_step, PIPELINE[1], 1, run_id, broadcast)
+        # ========================================================
+
+        with ThreadPoolExecutor(
+            max_workers=2
+        ) as executor:
+
+            future_1 = executor.submit(
+                run_step,
+                PIPELINE[0],
+                0,
+                run_id,
+                broadcast,
+                run_date
+            )
+
+            future_2 = executor.submit(
+                run_step,
+                PIPELINE[1],
+                1,
+                run_id,
+                broadcast,
+                run_date
+            )
 
             future_1.result()
             future_2.result()
 
-        # -----------------------------------
+        # ========================================================
         # SEQUENTIAL: Remaining steps
-        # -----------------------------------
-        for i in range(2, len(PIPELINE)):
-            run_step(PIPELINE[i], i, run_id, broadcast)
+        # ========================================================
 
-        update_run_status(run_id, "Success")
-        broadcast(-1, "\nPipeline completed successfully!")
+        for i in range(
+            2,
+            len(PIPELINE)
+        ):
+
+            run_step(
+                PIPELINE[i],
+                i,
+                run_id,
+                broadcast,
+                run_date
+            )
+
+        # --------------------------------------------------------
+        # SUCCESS
+        # --------------------------------------------------------
+
+        update_run_status(
+            run_id,
+            "Success"
+        )
+
+        broadcast(
+            -1,
+            "\nPipeline completed successfully!"
+        )
 
     except Exception as e:
-        run_details = get_run_details(run_id)
-        if run_details and run_details.get("status") == "Running":
-            update_run_status(run_id, "Failed", error_message=str(e))
 
-        broadcast(-1, f"\nPipeline stopped due to error: {str(e)}\n")
+        run_details = get_run_details(
+            run_id
+        )
+
+        if (
+            run_details
+            and run_details.get("status") == "Running"
+        ):
+
+            update_run_status(
+                run_id,
+                "Failed",
+                error_message=str(e)
+            )
+
+        broadcast(
+            -1,
+            f"\nPipeline stopped due to error: "
+            f"{str(e)}\n"
+        )
+
+
+

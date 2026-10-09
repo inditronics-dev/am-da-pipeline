@@ -1055,9 +1055,12 @@ if __name__ == "__main__":
     import pytz
 
     tz = pytz.timezone('Asia/Yerevan')
-    yesterday = datetime.now(tz) - timedelta(days=1)
+    run_date = os.environ.get("RUN_DATE")
 
-    start_date = yesterday.strftime("%Y-%m-%d")
+    if not run_date:
+        run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    start_date = run_date
     end_date = start_date
     from dotenv import load_dotenv
     

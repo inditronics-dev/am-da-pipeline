@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import hashlib
 from datetime import datetime, timedelta
+import psycopg2
 
 # ============================================================
 # PATH SETUP (UNCHANGED)
@@ -24,13 +25,201 @@ DIST_FILE  = os.path.join(BASE_DIR, "sessions", "merging", "distribution_table_b
 OUTPUT_PATH = os.path.join(BASE_DIR, "sessions", "merging", "sessions_with_rejuvenation")
 
 
+# ============================================================
+# DATABASE CONNECTION
+# ============================================================
+
+DB_HOST = "armenia-db-01.c960kiumy09x.ap-south-1.rds.amazonaws.com"
+DB_PORT = "5432"
+DB_NAME = "meter01"
+DB_USER = "postgres"
+DB_PASSWORD = "inditronics123"
+
+
+# ============================================================
+# DATABASE → HHID MAPPING EXCEL
+# ============================================================
+
+QUERY = """
+WITH latest_households AS (
+    SELECT DISTINCT ON (household_id)
+        household_id,
+        assigned_by,
+        assigned_at
+    FROM (
+        SELECT DISTINCT ON (ma.meter_id)
+            h.hhid AS household_id,
+            ma.assigned_by,
+            ma.assigned_at
+        FROM meter_assignments ma
+        JOIN meters m
+            ON ma.meter_id = m.id
+        JOIN households h
+            ON ma.household_id = h.id
+        WHERE m.meter_id >= 'IM000101'
+          AND m.meter_id <= 'IM000600'
+        ORDER BY ma.meter_id, ma.assigned_at DESC
+    ) latest_per_meter
+    ORDER BY household_id, assigned_at DESC
+)
+SELECT
+    h.hhid,
+    m.member_code,
+    m.gender,
+    h.city,
+    h.region,
+    DATE_PART('year', AGE(CURRENT_DATE, m.dob)) AS age,
+    lh.assigned_by,
+    lh.assigned_at
+FROM latest_households lh
+JOIN households h
+    ON h.hhid = lh.household_id
+JOIN members m
+    ON h.id = m.household_id
+ORDER BY
+    h.hhid,
+    m.member_code;
+"""
+
+
+def create_hhid_mapping_excel():
+    """Fetch household/member data and create the mapping Excel."""
+
+    print("Connecting to database...")
+
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+
+    try:
+        df = pd.read_sql_query(QUERY, conn)
+
+    finally:
+        conn.close()
+
+    print("Database rows fetched:", len(df))
+
+    # --------------------------------------------------------
+    # AGE GROUP
+    # --------------------------------------------------------
+    def get_age_group(age):
+        if pd.isna(age):
+            return "Not Found"
+
+        try:
+            age = int(age)
+        except (TypeError, ValueError):
+            return "Not Found"
+
+        if 0 <= age <= 19:
+            return "0-19"
+        elif 20 <= age <= 49:
+            return "20-49"
+        elif age >= 50:
+            return "50+"
+        else:
+            return "Not Found"
+
+    df["Age_Group"] = df["age"].apply(get_age_group)
+
+    # --------------------------------------------------------
+    # FAMILY SIZE
+    # --------------------------------------------------------
+    # Count members belonging to each HHID.
+    # Example: HHID 1014 has M1, M2, M3, M4, M5 → 5
+    df["Family_Size"] = (
+        df.groupby("hhid")["member_code"]
+          .transform("count")
+    )
+
+    # --------------------------------------------------------
+    # FAMILY SIZE GROUP
+    # --------------------------------------------------------
+    def get_family_size_group(size):
+        if pd.isna(size):
+            return "Not Found"
+
+        if size <= 2:
+            return "Small"
+        elif size <= 4:
+            return "Medium"
+        else:
+            return "Large"
+
+    df["Family_Size_Group"] = df["Family_Size"].apply(
+        get_family_size_group
+    )
+
+    # --------------------------------------------------------
+    # CITY GROUP
+    # --------------------------------------------------------
+    def get_city_group(region):
+        if pd.isna(region) or str(region).strip() == "":
+            return "Not Found"
+
+        region = str(region).strip()
+
+        if region == "Yerevan":
+            return "Yerevan"
+        elif region == "Not Found":
+            return "Not Found"
+        else:
+            return "Rest of Armenia"
+
+    df["City_Group"] = df["region"].apply(get_city_group)
+
+    # --------------------------------------------------------
+    # FINAL COLUMN ORDER
+    # --------------------------------------------------------
+    df = df[
+        [
+            "hhid",
+            "member_code",
+            "gender",
+            "city",
+            "region",
+            "age",
+            "assigned_by",
+            "assigned_at",
+            "Age_Group",
+            "Family_Size",
+            "Family_Size_Group",
+            "City_Group"
+        ]
+    ]
+
+    # --------------------------------------------------------
+    # REMOVE TIMEZONE FROM ALL DATETIME COLUMNS FOR EXCEL
+    # --------------------------------------------------------
+    for col in df.columns:
+        if pd.api.types.is_datetime64tz_dtype(df[col]):
+            df[col] = df[col].dt.tz_localize(None)
+
+    # Save to the existing mapping Excel path
+    df.to_excel(PANEL_FILE, index=False)
+
+    print("HHID mapping Excel created:", PANEL_FILE)
+    print("Mapping rows:", len(df))
+
+    return df
+
+
+# Create/update the mapping Excel before reading it
+create_hhid_mapping_excel()
 
 # ============================================================
 # D-1 DATE (UNCHANGED)
 # ============================================================
 
-today = datetime.today()
-d1_date = today - timedelta(days=1)
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+d1_date = datetime.strptime(run_date, "%Y-%m-%d")
 date_str = d1_date.strftime("%Y-%m-%d")
 
 print("Processing D-1 date:", date_str)
@@ -65,6 +254,7 @@ OUTPUT_FILE = os.path.join(
 )
 
 TXT_OUTPUT_FILE = OUTPUT_FILE.replace(".csv", ".txt")
+SUMMARY_TXT_FILE = OUTPUT_FILE.replace(".csv", "_Summary.txt")
 
 # ============================================================
 # TIME BAND FUNCTION (UNCHANGED)
@@ -246,6 +436,12 @@ missing_hhids = hh_missing_flag[hh_missing_flag].index
 
 missing_df = df[df['hhid'].isin(missing_hhids)].copy()
 valid_df = df[~df['hhid'].isin(missing_hhids)].copy()
+
+# -----------------------------------------
+# BEFORE ATTRIBUTION SUMMARY
+# -----------------------------------------
+hhids_blank_before = set(missing_hhids)
+total_blank_before = len(hhids_blank_before)
 
 # ============================================================
 # ATTRIBUTION (REPLACED CORE LOGIC)
@@ -473,6 +669,49 @@ final = (
     )
     .reset_index(drop=True)
 )
+
+# ============================================================
+# SUMMARY REPORT
+# ============================================================
+
+# HHIDs still having all member_id blank
+still_blank_flag = final.groupby("hhid")["member_id"].apply(lambda x: x.isna().all())
+hhids_still_blank = set(still_blank_flag[still_blank_flag].index)
+
+# HHIDs successfully filled
+hhids_filled = hhids_blank_before - hhids_still_blank
+
+with open(SUMMARY_TXT_FILE, "w", encoding="utf-8") as f:
+
+    # -----------------------------------------
+    # HHIDs 100% Blank Before
+    # -----------------------------------------
+    f.write(f"HHIDs 100% blank BEFORE : {len(hhids_blank_before)}\n")
+
+    for hhid in sorted(hhids_blank_before):
+        f.write(f"{hhid}\n")
+
+    f.write(f"Total blank BEFORE      : {len(hhids_blank_before)}\n\n")
+
+    # -----------------------------------------
+    # HHIDs Filled
+    # -----------------------------------------
+    f.write(f"HHIDs FILLED            : {len(hhids_filled)}\n")
+
+    for hhid in sorted(hhids_filled):
+        f.write(f"{hhid}\n")
+
+    f.write(f"Total filled            : {len(hhids_filled)}\n\n")
+
+    # -----------------------------------------
+    # HHIDs Still Blank
+    # -----------------------------------------
+    f.write(f"HHIDs STILL BLANK       : {len(hhids_still_blank)}\n")
+
+    for hhid in sorted(hhids_still_blank):
+        f.write(f"{hhid}\n")
+
+    f.write(f"Total still blank       : {len(hhids_still_blank)}\n")
 
 final.to_csv(OUTPUT_FILE, index=False, encoding="utf-8-sig")
 

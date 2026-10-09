@@ -8,9 +8,12 @@ import os
 # ===============================
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_CSV  = os.path.join(SCRIPT_DIR, "output", "final_channel_member_sessions.csv")
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
                 
-OUTPUT_CSV = os.path.join(SCRIPT_DIR, "output", f"{yesterday}_fp_sessions.csv")
+OUTPUT_CSV = os.path.join(SCRIPT_DIR, "output", f"{run_date}_fp_sessions.csv")
 
 # ===============================
 # HELPERS

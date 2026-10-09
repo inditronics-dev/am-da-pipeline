@@ -29,9 +29,16 @@ db_config = {
 # -------------------------------
 # AUTO DATE (D-1)
 # -------------------------------
-yesterday = datetime.now() - timedelta(days=1)
-start_date_str = yesterday.strftime("%Y-%m-%d")
-end_date_str = yesterday.strftime("%Y-%m-%d")
+run_date = os.environ.get("RUN_DATE")
+
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+today = (
+    datetime.strptime(run_date, "%Y-%m-%d") + timedelta(days=1)
+).date()
+start_date_str = run_date
+end_date_str = run_date    #for 02-02 is taken care in end date string
 
 print(f"Auto Date Selected (D-1): {start_date_str}")
 
@@ -101,7 +108,7 @@ WHERE type IN ('3','4')
   AND device_id IN ({device_ids_str})
 ORDER BY device_id ASC, timestamp ASC;
 """
-
+# the range of unqiue device_ids derived from the filtered file should be in the following range "IM000101" to "IM000600" as per the requirement if not specify.
 # -------------------------------
 # QUERY DATABASE
 # -------------------------------

@@ -11,7 +11,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANNEL_CSV = os.path.join(SCRIPT_DIR, "output", "sessions_output.csv")     # channel-level sessions (already sessionized)
 MEMBER_CSV  = os.path.join(SCRIPT_DIR, "output", "merged_timeline.csv")     # type=3 member declarations
 OUTPUT_CSV  = os.path.join(SCRIPT_DIR, "output", "final_channel_member_sessions.csv")
-
+inter_CSV  = os.path.join(SCRIPT_DIR, "output", "intermediate_member_sessions.csv")
 # ===============================
 # TIME HELPERS
 # ===============================
@@ -146,7 +146,7 @@ for _, ch in channel_df.iterrows():
 # OUTPUT
 # ===============================
 final_df = pd.DataFrame(final_rows)
-
+member_sess_df.to_csv(inter_CSV, index=False)
 # ensure original column order + appended fields
 base_cols = list(channel_df.columns)
 extra_cols = [c for c in final_df.columns if c not in base_cols]

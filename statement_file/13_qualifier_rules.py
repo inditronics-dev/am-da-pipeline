@@ -15,11 +15,14 @@ from dotenv import load_dotenv
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+run_date = os.environ.get("RUN_DATE")
 
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+if not run_date:
+    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
 
 INPUT_PATTERN = os.path.join(
-    BASE_DIR, "for_panel_files", "for_panel", f"{yesterday}_cleaned.csv"
+    BASE_DIR, "for_panel_files", "for_panel", f"{run_date}_cleaned.csv"
 )
 
 OUTPUT_DIR = os.path.join(BASE_DIR, "statement_file", "qualifier_output")
@@ -48,8 +51,10 @@ db_config = {
     'password': os.getenv("DB_PASSWORD")
 }
 
-engine_url = f"postgresql://{db_config['user']}:{db_config['password']}@" \
-             f"{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
+engine_url = (
+    f"postgresql+psycopg2://{db_config['user']}:{db_config['password']}@"
+    f"{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
+)
 
 engine = create_engine(engine_url)
 
@@ -287,7 +292,7 @@ for file_path in files:
     if not final_df.empty:
         date_str = str(final_df["date"].iloc[0])
     else:
-        date_str = yesterday
+        date_str = run_date
 
     out_file = os.path.join(
         OUTPUT_DIR,
