@@ -2,7 +2,7 @@ name: daily-run
 
 on:
   schedule:
-    - cron: "20 10 * * *"   # 04:00 UTC = 09:30 IST
+    - cron: "20 17 * * *"   # 04:00 UTC = 09:30 IST
   workflow_dispatch:
 
 permissions:
