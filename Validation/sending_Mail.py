@@ -98,7 +98,7 @@ APP_PASSWORD = "jeft eidg wyhs axdi"
 
 # Receiver (currently sending to yourself)
 RECEIVER_EMAILS = [
-    "kanchan.bishnoi@inditronics.com", "senthil.kumar@inditronics.com", "chandrashekhar.banda@inditronics.com", "aftab.momin@inditronics.com"
+    "kanchan.bishnoi@inditronics.com", "senthil.kumar@inditronics.com", "aftab.momin@inditronics.com", "akash.pingale@inditronics.com", "mohsin.nadaf@inditronics.com"
 ]
 
 

@@ -1,0 +1,24 @@
+name: daily-run
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 04:00 UTC = 09:30 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull image
+        run: docker pull ghcr.io/${{ github.repository }}:latest
+
+      - name: Run image
+        run: docker run --rm ghcr.io/${{ github.repository }}:latest

@@ -168,6 +168,12 @@ UPLOADS = [
         "filename": "ruled_PROCESSED.csv",
     },
 
+    {
+         "local": os.path.join("statement_file", "qualifier_output", f"{date_ymd}_Mapping_file.xlsx"),
+         "category": "qualifier",
+         "filename": "mapping.xlsx",   
+    },
+
     # --- Statement: Final statement file ---
     {
         "local": os.path.join("statement_file", "statement", f"{date_ymd}_statement.csv"),

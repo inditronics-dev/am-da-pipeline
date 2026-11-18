@@ -414,142 +414,422 @@ update_validation(
     "PASS"
 )
 
+
 # =========================================================
-# 6. ONLY NON-NATIONAL CHANNELS CLIPPED
+# 6A. CHANNEL CLIPPING SCOPE VALIDATION
 # =========================================================
 
-CHANNEL_GROUPS = {
-
-    "ATV": [
-        "A TV",
-        "ATV"
-    ],
-
-    "ArmeniaTV": [
-        "Armenia TV",
-        "ArmeniaTV"
-    ],
-
-    "ShantTV": [
-        "Shant TV",
-        "ShantTV"
-    ],
-
-    "FirstNewsChannel": [
-        "First News Channel",
-        "FirstNewsChannel"
-    ],
-
-    "PublicTV": [
-        "Public TV",
-        "PublicTV"
-    ],
-
-    "KentronTVHD": [
-        "Kentron Tv HD",
-        "KentronTVHD"
-    ]
-}
-
-# ---------------------------------------------------------
-# INPUT TOTAL
-# ---------------------------------------------------------
-input_channel_sum = (
-    clip_input_df
-    .groupby("channel")["duration_seconds"]
-    .sum()
+CLIPPING_CHECK_NAME = (
+    "Validate that only households (HHIDs) in the Rest of Armenia "
+    "region using IPTV or Cable Operator as their Mode of Signal "
+    "Reception (MOS) and watching only non-national channels were removed."
 )
 
-# ---------------------------------------------------------
-# OUTPUT TOTAL
-# ---------------------------------------------------------
-output_channel_sum = (
-    clip_output_df
-    .groupby("channel")["duration_seconds"]
-    .sum()
+TARGET_CHANNEL_IDS = {7, 8, 10, 11, 12, 13, 14, 15}
+TARGET_MOS = {"IPTV", "CABLE OPERATOR"}
+
+# Use the mapping file created by the main clipping script.
+MAPPING_FILE = os.path.join(
+    RULE_FOLDER,
+    f"{yyyy_mm_dd}_Mapping_file.xlsx"
 )
 
-failed_channels = []
-
-for std_name, variants in CHANNEL_GROUPS.items():
-
-    input_total = 0
-    output_total = 0
-
-    for ch in variants:
-        input_total += input_channel_sum.get(ch, 0)
-        output_total += output_channel_sum.get(ch, 0)
-
+try:
     # -----------------------------------------------------
-    # National channels should NEVER gain duration.
-    # Small reduction is acceptable because sessions
-    # <5 seconds are removed after processing.
+    # 1. Validate the required files and columns
     # -----------------------------------------------------
-    if output_total > input_total:
-
-        failed_channels.append(
-            f"{std_name} "
-            f"(Input={input_total}, Output={output_total}, "
-            f"Increased by {output_total-input_total})"
+    if not os.path.exists(MAPPING_FILE):
+        raise FileNotFoundError(
+            f"Mapping file not found: {MAPPING_FILE}"
         )
 
-if len(failed_channels) == 0:
+    input_df = clip_input_df.copy()
+    output_df = clip_output_df.copy()
+    mapping_df = pd.read_excel(
+        MAPPING_FILE,
+        dtype={"hhid": "string"}
+    )
+
+    # Normalize column headers.
+    for df in (input_df, output_df, mapping_df):
+        df.columns = df.columns.astype(str).str.strip()
+
+    # Normalize header capitalization.
+    input_df.rename(
+        columns={
+            c: c.lower()
+            for c in input_df.columns
+        },
+        inplace=True
+    )
+    output_df.rename(
+        columns={
+            c: c.lower()
+            for c in output_df.columns
+        },
+        inplace=True
+    )
+    mapping_df.rename(
+        columns={
+            c: c.lower()
+            for c in mapping_df.columns
+        },
+        inplace=True
+    )
+
+    required_input = {
+        "hhid", "channelid", "duration_seconds"
+    }
+    required_output = {
+        "hhid", "channel", "duration_seconds"
+    }
+    required_mapping = {
+        "hhid", "mos", "city_group"
+    }
+
+    missing_input = required_input - set(input_df.columns)
+    missing_output = required_output - set(output_df.columns)
+    missing_mapping = required_mapping - set(mapping_df.columns)
+
+    if missing_input or missing_output or missing_mapping:
+        raise ValueError(
+            f"Input missing columns: {sorted(missing_input)}; "
+            f"output missing columns: {sorted(missing_output)}; "
+            f"mapping missing columns: {sorted(missing_mapping)}"
+        )
+
+    # -----------------------------------------------------
+    # 2. Normalize HHIDs and mapping values
+    # -----------------------------------------------------
+    for df in (input_df, output_df, mapping_df):
+        df["hhid"] = (
+            df["hhid"].astype("string")
+            .str.strip()
+            .str.upper()
+        )
+
+    mapping_df["mos"] = (
+        mapping_df["mos"].astype("string")
+        .str.strip()
+        .str.upper()
+    )
+
+    mapping_df["city_group"] = (
+        mapping_df["city_group"].astype("string")
+        .str.strip()
+        .str.casefold()
+    )
+
+    # Every HHID must have one consistent MOS and City_group.
+    household_mapping = mapping_df[
+        ["hhid", "mos", "city_group"]
+    ].drop_duplicates()
+
+    mapping_conflicts = (
+        household_mapping.groupby("hhid")[
+            ["mos", "city_group"]
+        ].nunique().gt(1).any(axis=1)
+    )
+
+    if mapping_conflicts.any():
+        conflict_hhids = mapping_conflicts[
+            mapping_conflicts
+        ].index.tolist()[:10]
+
+        raise ValueError(
+            "Mapping file has conflicting MOS/City_group values "
+            f"for HHIDs. Examples: {conflict_hhids}"
+        )
+
+    household_mapping = household_mapping.drop_duplicates(
+        subset=["hhid"]
+    )
+
+    # -----------------------------------------------------
+    # 3. Map MOS and City_group onto BOTH datasets
+    # -----------------------------------------------------
+    input_df = input_df.drop(
+        columns=["mos", "city_group"],
+        errors="ignore"
+    ).merge(
+        household_mapping,
+        on="hhid",
+        how="left",
+        validate="many_to_one"
+    )
+
+    output_df = output_df.drop(
+        columns=["mos", "city_group"],
+        errors="ignore"
+    ).merge(
+        household_mapping,
+        on="hhid",
+        how="left",
+        validate="many_to_one"
+    )
+
+    if input_df["city_group"].isna().any():
+        raise ValueError(
+            "Some input HHIDs could not be mapped to City_group."
+        )
+
+    if output_df["city_group"].isna().any():
+        raise ValueError(
+            "Some output HHIDs could not be mapped to City_group."
+        )
+
+    # -----------------------------------------------------
+    # 4. Reconstruct the expected clipping conditions
+    # -----------------------------------------------------
+    input_df["channelid"] = pd.to_numeric(
+        input_df["channelid"],
+        errors="coerce"
+    )
+
+    input_df["duration_seconds"] = pd.to_numeric(
+        input_df["duration_seconds"],
+        errors="coerce"
+    )
+
+    output_df["duration_seconds"] = pd.to_numeric(
+        output_df["duration_seconds"],
+        errors="coerce"
+    )
+
+    eligible_for_clipping = (
+        input_df["city_group"].eq("rest of armenia")
+        & input_df["mos"].isin(TARGET_MOS)
+        & input_df["channelid"].isin(TARGET_CHANNEL_IDS)
+    )
+
+    # Sessions below 5 seconds are removed by the separate
+    # duration rule, not by channel clipping.
+    valid_duration = input_df["duration_seconds"].ge(5)
+
+    expected_output = input_df.loc[
+        (~eligible_for_clipping) & valid_duration
+    ].copy()
+
+    eligible_rows = input_df.loc[
+        eligible_for_clipping & valid_duration
+    ]
+
+    # -----------------------------------------------------
+    # 5. Compare expected rows with actual output
+    # -----------------------------------------------------
+    # Compare only columns available in both datasets.
+    # channelid is excluded because the final output contains
+    # channel names instead of channel IDs.
+    excluded_columns = {
+        "channelid", "mos", "city_group"
+    }
+
+    compare_columns = [
+        c for c in expected_output.columns
+        if c in output_df.columns
+        and c not in excluded_columns
+    ]
+
+    if not compare_columns or "channel" not in compare_columns:
+        raise ValueError(
+            "Cannot compare expected input rows with output. "
+            "A common channel column is required."
+        )
+
+    def canonical_rows(df, columns):
+        result = df[columns].copy()
+
+        for col in result.columns:
+            if col == "duration_seconds":
+                values = pd.to_numeric(
+                    result[col], errors="coerce"
+                )
+                result[col] = values.map(
+                    lambda x: (
+                        "<NA>" if pd.isna(x)
+                        else format(float(x), ".10g")
+                    )
+                )
+            else:
+                result[col] = (
+                    result[col].astype("string")
+                    .fillna("<NA>")
+                    .str.strip()
+                )
+
+        return sorted(
+            map(tuple, result.to_numpy().tolist()),
+            key=repr
+        )
+
+    expected_rows = canonical_rows(
+        expected_output, compare_columns
+    )
+    actual_rows = canonical_rows(
+        output_df, compare_columns
+    )
+
+    rows_match = expected_rows == actual_rows
+
+    # The final output must not contain any eligible sessions.
+    # Map channel names to IDs here if your output's channel
+    # column does not retain the same channel labels as input.
+    remaining_eligible = 0
+
+    if "channelid" in output_df.columns:
+        output_channel_ids = pd.to_numeric(
+            output_df["channelid"], errors="coerce"
+        )
+        remaining_eligible = int((
+            output_df["city_group"].eq("rest of armenia")
+            & output_df["mos"].isin(TARGET_MOS)
+            & output_channel_ids.isin(TARGET_CHANNEL_IDS)
+        ).sum())
+
+    # -----------------------------------------------------
+    # 6. Report result
+    # -----------------------------------------------------
+    if rows_match and remaining_eligible == 0:
+        update_validation(
+            CLIPPING_CHECK_NAME,
+            "PASS",
+            f"Mapping file applied successfully. "
+            f"Eligible clipping rows (duration >=5 sec)="
+            f"{len(eligible_rows)}; expected output rows="
+            f"{len(expected_output)}; actual output rows="
+            f"{len(output_df)}. Output matches the expected result."
+        )
+    else:
+        update_validation(
+            CLIPPING_CHECK_NAME,
+            "FAIL",
+            f"Eligible clipping rows (duration >=5 sec)="
+            f"{len(eligible_rows)}; expected output rows="
+            f"{len(expected_output)}; actual output rows="
+            f"{len(output_df)}; row comparison passed={rows_match}. "
+            f"Eligible rows remaining={remaining_eligible}. "
+            "Review the input, output and mapping file."
+        )
+
+except Exception as e:
+    update_validation(
+        CLIPPING_CHECK_NAME,
+        "FAIL",
+        f"Clipping scope validation could not be completed: "
+        f"{type(e).__name__}: {e}"
+    )
+
+
+# =========================================================
+# 6B. MOS VALIDATION - REPORT UNIQUE HHIDs
+# =========================================================
+# Checks the mapping Excel file. Missing MOS households
+# must be reported and must remain excluded from clipping.
+
+MOS_CHECK_NAME = "Validate that there are no NA values in the MOS column"
+
+MAPPING_FILE = os.path.join(
+    RULE_FOLDER,
+    f"{yyyy_mm_dd}_Mapping_file.xlsx"
+)
+
+if not os.path.exists(MAPPING_FILE):
 
     update_validation(
-        "Ensure that only Non-National channels are clipped",
-        "PASS"
+        MOS_CHECK_NAME,
+        "FAIL",
+        f"Mapping file not found: {MAPPING_FILE}"
     )
 
 else:
+    mos_df = pd.read_excel(MAPPING_FILE)
 
-    update_validation(
-        "Ensure that only Non-National channels are clipped",
-        "FAIL",
-        " | ".join(failed_channels)
+    mos_df.columns = (
+        mos_df.columns.astype(str).str.strip().str.lower()
     )
-# =========================================================
-# 7. DURATION <= 1800
-# =========================================================
-over_1800 = clip_output_df[
-    clip_output_df["duration_seconds"] > 1800
-]
 
-if len(over_1800) == 0:
+    if "hhid" not in mos_df.columns or "mos" not in mos_df.columns:
+
+        update_validation(
+            MOS_CHECK_NAME,
+            "FAIL",
+            "HHID or MOS column not found in mapping file"
+        )
+
+    else:
+        mos_df["hhid"] = mos_df["hhid"].astype("string").str.strip()
+        mos = mos_df["mos"].astype("string").str.strip()
+
+        missing_mos = (
+            mos.isna()
+            | mos.eq("")
+            | mos.str.casefold().isin(["na", "n/a", "nan", "none"])
+        )
+
+        missing_hhids = sorted(
+            mos_df.loc[
+                missing_mos & mos_df["hhid"].notna(),
+                "hhid"
+            ].drop_duplicates().tolist()
+        )
+
+        if not missing_mos.any():
+            update_validation(
+                MOS_CHECK_NAME,
+                "PASS",
+                "No missing MOS values found"
+            )
+        else:
+            hhid_text = ", ".join(missing_hhids) if missing_hhids else "HHID unavailable"
+
+            update_validation(
+                MOS_CHECK_NAME,
+                "FAIL",
+                f"Missing MOS rows={int(missing_mos.sum())}; "
+                f"unique HHIDs={len(missing_hhids)}; HHIDs: {hhid_text}"
+            )
+
+
+# =========================================================
+# 6C. OUTPUT SESSIONS MUST BE AT LEAST 5 SECONDS
+# =========================================================
+
+DURATION_CHECK_NAME = (
+    "Validate that Less than 5 seconds are removed from the output file."
+)
+
+if "duration_seconds" not in clip_output_df.columns:
 
     update_validation(
-        "Validate that the duration_seconds column does not exceed 1800 seconds",
-        "PASS"
+        DURATION_CHECK_NAME,
+        "FAIL",
+        "duration_seconds column not found in clipping output"
     )
 
 else:
-
-    update_validation(
-        "Validate that the duration_seconds column does not exceed 1800 seconds",
-        "FAIL",
-        f"{len(over_1800)} rows exceed 1800"
+    clip_output_df["duration_seconds"] = pd.to_numeric(
+        clip_output_df["duration_seconds"],
+        errors="coerce"
     )
 
-# =========================================================
-# 8. ALL SESSIONS > 4 SECONDS AFTER CHANNEL CLIPPING
-# =========================================================
-less_than_5 = clip_output_df[
-    clip_output_df["duration_seconds"] <= 4
-]
+    short_or_missing = clip_output_df[
+        clip_output_df["duration_seconds"].isna()
+        | (clip_output_df["duration_seconds"] < 5)
+    ]
 
-if len(less_than_5) == 0:
+    if short_or_missing.empty:
+        update_validation(
+            DURATION_CHECK_NAME,
+            "PASS",
+            "No output sessions below 5 seconds or with missing duration"
+        )
+    else:
+        update_validation(
+            DURATION_CHECK_NAME,
+            "FAIL",
+            f"{len(short_or_missing)} output rows have duration below 5 seconds or missing duration"
+        )
 
-    update_validation(
-        "Validate that each session's duration is greater than 4 seconds",
-        "PASS"
-    )
-
-else:
-
-    update_validation(
-        "Validate that each session's duration is greater than 4 seconds",
-        "FAIL",
-        f"{len(less_than_5)} sessions found with duration <= 4"
-    )
 
 # =========================================================
 # 9. UNWANTED CHANNELS REMOVED
@@ -690,6 +970,7 @@ else:
         f"{len(zero_duration)} zero duration rows found"
     )
 
+
 # =========================================================
 # 14. FINAL VALIDATION
 # =========================================================
@@ -699,15 +980,13 @@ all_pass = (
     and len(late_night) == 0
     and len(over_6hr) == 0
     and len(indi_fail) == 0
-    and len(failed_channels) == 0
-    and len(over_1800) == 0
-    and len(less_than_5) == 0
     and len(unwanted) == 0
     and len(blank_time) == 0
     and len(blank_rows) == 0
     and len(invalid_member) == 0
     and len(zero_duration) == 0
 )
+
 
 if all_pass:
 

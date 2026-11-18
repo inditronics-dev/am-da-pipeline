@@ -14,11 +14,10 @@ Original file is located at
 
 import pandas as pd
 import numpy as np
-import psycopg2
 from datetime import datetime, timedelta
 import re
-from sqlalchemy import create_engine
-
+import boto3
+from dotenv import load_dotenv
 import os
 
 # ============================================================
@@ -28,12 +27,46 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
-run_date = os.environ.get("RUN_DATE")
+yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+RAW_FILE_PATH = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{yesterday}_ruled.csv")
 
-if not run_date:
-    run_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+# # ============================================================
+# # MANUAL PROCESSING DATE
+# # ============================================================
 
-RAW_FILE_PATH = os.path.join(BASE_DIR, "statement_file", "qualifier_output", f"{run_date}_ruled.csv")
+# while True:
+#     input_date = input(
+#         "Enter processing date (YYYY-MM-DD): "
+#     ).strip()
+
+#     try:
+#         processing_date = datetime.strptime(
+#             input_date, "%Y-%m-%d"
+#         ).date()
+
+#         break
+
+#     except ValueError:
+#         print("Invalid date format. Please enter YYYY-MM-DD.")
+
+# # Build input file path using the entered date
+# date_str = processing_date.strftime("%Y-%m-%d")
+
+# RAW_FILE_PATH = os.path.join(
+#     BASE_DIR,
+#     "statement_file",
+#     "qualifier_output",
+#     f"{date_str}_ruled.csv"
+# )
+
+# # Check whether the input file exists
+# if not os.path.isfile(RAW_FILE_PATH):
+#     raise FileNotFoundError(
+#         f"Input file not found for {date_str}: {RAW_FILE_PATH}"
+#     )
+
+# print(f"Processing date: {date_str}")
+# print(f"Input file: {RAW_FILE_PATH}")
 
 from dotenv import load_dotenv
 
@@ -44,84 +77,148 @@ BASE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 # Load .env file
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# ============================================================
-# DATABASE CONFIG
-# ============================================================
-
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 # ============================================================
-# LOAD RAW
-# ============================================================
-raw_df = pd.read_csv(RAW_FILE_PATH)
-
-file_date = datetime.strptime(
-    re.search(r'(\d{4}-\d{2}-\d{2})', RAW_FILE_PATH).group(1),
-    "%Y-%m-%d"
-).date()
-
-raw_df['date'] = file_date
-raw_df['Full_Member_ID'] = raw_df['hhid'].astype(str) + raw_df['member_id'].astype(str)
-
-# ============================================================
-# LOAD REGION FROM DATABASE
+# S3 CONFIGURATION
 # ============================================================
 
-# Create SQLAlchemy engine for proper pandas/PostgreSQL integration
-engine = create_engine(
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
+S3_REGION = os.getenv("S3_REGION", "ap-south-1")
+S3_OUTPUT_BUCKET = os.getenv(
+    "S3_OUTPUT_BUCKET",
+    "indi-analytics-output"
 )
 
-query = """
-SELECT
-    h.hhid,
-    m.member_code,
-    m.gender,
-    city,
-    region,
-    DATE_PART('year', AGE(CURRENT_DATE, m.dob)) AS age
-FROM households h
-JOIN members m ON h.id = m.household_id
-ORDER BY h.hhid, m.member_code;
-"""
+if not S3_ACCESS_KEY or not S3_SECRET_KEY:
+    raise ValueError(
+        "S3_ACCESS_KEY or S3_SECRET_KEY is missing from .env"
+    )
 
-db_df = pd.read_sql(query, engine)
-engine.dispose()
-
-# IMPORTANT: deduplicate HHID → region mapping
-master_df = db_df[['hhid','region']].drop_duplicates()
-
-# rename to match your pipeline
-master_df.rename(columns={'region':'City_group'}, inplace=True)
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=S3_ACCESS_KEY,
+    aws_secret_access_key=S3_SECRET_KEY,
+    region_name=S3_REGION
+)
 
 # ============================================================
-# FIX: ALIGN HHID DATATYPE BEFORE MERGE
+# LOAD RAW INPUT FILE
 # ============================================================
-raw_df['hhid'] = raw_df['hhid'].astype(str)
-master_df['hhid'] = master_df['hhid'].astype(str)
+
+raw_df = pd.read_csv(RAW_FILE_PATH)
+
+file_date = yesterday
+raw_df["date"] = file_date
+raw_df["Full_Member_ID"] = (
+    raw_df["hhid"].astype(str)
+    + raw_df["member_id"].astype(str)
+)
 
 # ============================================================
-# MERGE (ONLY ONCE)
+# LOAD REGION FROM S3 DAILY HOUSEHOLD DETAILS
 # ============================================================
-raw_df = raw_df.merge(master_df, on='hhid', how='left')
 
-missing = raw_df['City_group'].isna().sum()
+s3_key = (
+    f"reports/household-details/{yesterday}/"
+    f"daily_household_details_{yesterday}.csv"
+)
+
+print("Loading household details from S3:")
+print(f"s3://{S3_OUTPUT_BUCKET}/{s3_key}")
+
+try:
+    response = s3_client.get_object(
+        Bucket=S3_OUTPUT_BUCKET,
+        Key=s3_key
+    )
+
+    s3_df = pd.read_csv(response["Body"])
+
+except Exception as e:
+    raise RuntimeError(
+        f"Failed to load daily household details from S3. "
+        f"Bucket={S3_OUTPUT_BUCKET}, Key={s3_key}. Error: {e}"
+    ) from e
+
+# Match column names without depending on capitalization/spaces
+column_lookup = {
+    str(col).strip().lower().replace("_", " "): col
+    for col in s3_df.columns
+}
+
+hhid_col = next(
+    (
+        column_lookup[name]
+        for name in ["hhid", "hh number", "household number"]
+        if name in column_lookup
+    ),
+    None
+)
+
+region_col = next(
+    (
+        column_lookup[name]
+        for name in ["region", "city group", "citygroup"]
+        if name in column_lookup
+    ),
+    None
+)
+
+if hhid_col is None or region_col is None:
+    raise ValueError(
+        "Required HHID and Region columns were not found in "
+        f"the S3 household details file. Available columns: "
+        f"{list(s3_df.columns)}"
+    )
+
+# Create the HHID-to-region mapping
+master_df = s3_df[[hhid_col, region_col]].copy()
+
+master_df.columns = ["hhid", "City_group"]
+
+master_df["hhid"] = master_df["hhid"].astype(str).str.strip()
+raw_df["hhid"] = raw_df["hhid"].astype(str).str.strip()
+
+master_df = master_df.drop_duplicates()
+
+# A household must not map to multiple regions
+region_counts = master_df.groupby("hhid")["City_group"].nunique()
+
+conflicting_hhids = region_counts[region_counts > 1].index
+
+if len(conflicting_hhids) > 0:
+    raise ValueError(
+        f"{len(conflicting_hhids)} HHIDs have multiple regions "
+        "in the S3 household details file. Please correct the source."
+    )
+
+master_df = master_df.drop_duplicates(subset=["hhid"])
+
+# Merge region into raw data
+raw_df = raw_df.merge(
+    master_df,
+    on="hhid",
+    how="left",
+    validate="many_to_one"
+)
+
+missing = raw_df["City_group"].isna().sum()
 print("Missing region:", missing)
 
-raw_df['City_group'] = raw_df['City_group'].fillna('Unknown')
+raw_df["City_group"] = raw_df["City_group"].fillna("Unknown")
 
-print("Valid rows after DB region mapping:", len(raw_df))
+print("Valid rows after S3 region mapping:", len(raw_df))
+
 
 # ============================================================
 # CHANNEL MAP
 # ============================================================
 channelid_map = {
     1:"FirstNewsChannel",2:"PublicTV",3:"ShantTV",
-    4:"ArmeniaTV",5:"KentronTvHD",7:"DarTV",
+    4:"ArmeniaTV",5:"KentronTvHD", 6:"FastSport", 7:"DarTV",
     8:"MIRTV",10:"NurTV",11:"BoonTv",
     12:"TV5",13:"NorHayastan",14:"FreeNews", 15:"ATV"
 }
@@ -135,7 +232,7 @@ genre_map = {
     "FirstNewsChannel":"News","FreeNews":"News",
     "PublicTV":"GEC","ShantTV":"GEC","ArmeniaTV":"GEC",
     "KentronTvHD":"GEC","TV5":"GEC","NorHayastan":"GEC","MIRTV":"GEC",
-    "NurTV":"Others","BoonTv":"Others","DarTV":"Others", "ATV":"GEC"
+    "NurTV":"Others","BoonTv":"Others","DarTV":"Others", "ATV":"GEC", "FastSport":"SPORTS"
 }
 
 raw_df['Genre_Capping'] = raw_df['channel_Name'].map(genre_map)
@@ -173,19 +270,18 @@ cap_df = (
     .merge(p_stats, on=['City_group','channelid'])
 )
 
-
 # ============================================================
 # APPLY CAPS
 # ============================================================
 cap_df['absolute cap sec'] = cap_df['Genre_Capping'].map(
-    {'GEC':5400,'News':3600,'Others':3600}
+    {'GEC':10800,'News':7200,'Others':7200, 'SPORTS':10800}
 )
 
 cap_df['low_sample_cap sec'] = cap_df['absolute cap sec']
 
 excluded_channels = {
     'FirstNewsChannel','PublicTV',
-    'KentronTvHD','ArmeniaTV','ShantTV'
+    'KentronTvHD','ArmeniaTV','ShantTV','FastSport'
 }
 
 def final_target(r):
@@ -242,9 +338,6 @@ for _, row in raw_df.iterrows():
         remaining -= chunk
 
 split_df = pd.DataFrame(split_rows).reset_index(drop=True)
-
-
-
 
 # ============================================================
 # DAYPART MASTER (INTERNAL – NO EXTERNAL FILE)
@@ -352,8 +445,47 @@ split_df = split_df.merge(
 # FINAL DURATION FLAG BEFORE TRIM
 # ============================================================
 
-split_df['clipping require'] = split_df['Cut_Required'] > 0
-split_df['Case_Number'] = 0   # default = no clipping
+# split_df['clipping require'] = split_df['Cut_Required'] > 0
+# split_df['Case_Number'] = 0   # default = no clipping
+
+# ============================================================
+# CLIPPING REGION FILTER
+# Apply clipping ONLY to the specified regions
+# All other regions, including Yerevan, remain unchanged
+# ============================================================
+
+CLIPPING_REGIONS = [
+    "Vanadzor",
+    "Artashat",
+    "Hrazdan",
+    "Gavar",
+    "Gyumri",
+    "Ashtarak",
+    "Vagharshapat",
+    "Ijevan",
+    "Kapan",
+    "Yeghegnadzor"
+]
+
+# Clipping is required only when:
+# 1. Cut_Required > 0
+# 2. City_group belongs to the allowed clipping regions
+
+split_df['clipping require'] = (
+    (split_df['Cut_Required'] > 0) &
+    (split_df['City_group'].isin(CLIPPING_REGIONS))
+)
+
+# Default: no clipping case
+split_df['Case_Number'] = 0
+
+print("Clipping region filter applied.")
+print("Eligible regions:", ", ".join(CLIPPING_REGIONS))
+print(
+    "Rows eligible for clipping:",
+    split_df['clipping require'].sum()
+)
+
 
 # ============================================================
 # CREATE BEFORE-TRIM AUDIT SHEET (CORRECT TIME FORMAT)
@@ -555,6 +687,91 @@ channel_summary['Difference'] = (
 # Replace duration_seconds with final trimmed duration
 split_df['duration_seconds'] = split_df['Final_Duration']
 
+# ============================================================
+# RE-MERGE SPLIT SESSIONS (AFTER DURATION CLIPPING)
+# ============================================================
+# Merge rule: same hhid -> same member_id -> same channel
+#             AND previous end_time == next start_time
+
+rows_before_merge = len(split_df)
+total_duration_before_merge = split_df['duration_seconds'].sum()
+
+# Keep original order so the output order is unchanged
+split_df['_orig_order'] = range(len(split_df))
+
+# Rebuild end_sec and the clock-time columns from the trimmed values
+split_df['end_sec'] = split_df['start_sec'] + split_df['duration_seconds']
+split_df['start_time'] = split_df['start_sec'].apply(sec_to_clock)
+split_df['end_time'] = split_df['end_sec'].apply(sec_to_clock)
+
+# Fully clipped chunks (0 seconds) carry no viewing, so drop them
+split_df = split_df[split_df['duration_seconds'].fillna(0) > 0].copy()
+
+# Sort so chunks of the same viewing sit next to each other
+split_df = split_df.sort_values(
+    ['hhid', 'member_id', 'channel', 'start_sec'],
+    kind='mergesort'
+).reset_index(drop=True)
+
+prev = split_df.shift(1)
+
+same_key = (
+    (split_df['hhid'].astype(str) == prev['hhid'].astype(str))
+    & (split_df['member_id'].astype(str) == prev['member_id'].astype(str))
+    & (split_df['channel'].astype(str) == prev['channel'].astype(str))
+)
+
+# previous end_time must be exactly the same as current start_time
+contiguous = split_df['start_time'].astype(str) == prev['end_time'].astype(str)
+
+continues_previous = same_key & contiguous
+
+# New group id each time a row does NOT continue the previous one
+split_df['_merge_group'] = (~continues_previous).cumsum()
+
+# End of the whole chain = end of its last chunk
+split_df['_merged_end'] = (
+    split_df.groupby('_merge_group')['end_sec'].transform('last')
+)
+
+# Keep the first chunk of every chain (keeps its start and other fields)
+split_df = split_df.drop_duplicates('_merge_group', keep='first').copy()
+
+# Recalculate end and duration from merged start/end
+split_df['end_sec'] = split_df['_merged_end']
+split_df['duration_seconds'] = split_df['end_sec'] - split_df['start_sec']
+split_df['Final_Duration'] = split_df['duration_seconds']
+
+# Rebuild the time columns
+split_df['start_time'] = split_df['start_sec'].apply(sec_to_clock)
+split_df['end_time'] = split_df['end_sec'].apply(sec_to_clock)
+split_df['duration'] = split_df['duration_seconds'].apply(sec_to_hms)
+
+# Restore original order and drop helper columns
+split_df = (
+    split_df.sort_values('_orig_order')
+    .drop(columns=['_orig_order', '_merge_group', '_merged_end'])
+    .reset_index(drop=True)
+)
+
+print("\nSession Re-merge Summary:")
+print(f"Rows before merge: {rows_before_merge:,}")
+print(f"Rows after merge:  {len(split_df):,}")
+print(f"Rows merged/removed: {rows_before_merge - len(split_df):,}")
+
+# Safety check: warning only, the script continues and saves the output
+total_duration_after_merge = split_df['duration_seconds'].sum()
+difference = total_duration_after_merge - total_duration_before_merge
+
+if abs(difference) > 1:
+    print(
+        "WARNING: Total duration changed during re-merge by "
+        f"{difference:+,.1f} sec "
+        f"({total_duration_before_merge:,.1f} -> {total_duration_after_merge:,.1f}). "
+        "Continuing and saving output."
+    )
+else:
+    print("PASS: Total duration unchanged by re-merge.")
 # ===============================
 # REMOVE SESSIONS LESS THAN 5 SEC
 # ===============================
@@ -594,7 +811,8 @@ final_output_df = split_df[
         'end_time',
         'duration',
         'duration_seconds',
-        'type'
+        'type',
+        'Member_Status'
     ]
 ].copy()
 

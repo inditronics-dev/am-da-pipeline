@@ -317,7 +317,18 @@ def deterministic_allocate(total_seconds, shares):
         alloc[idx] += 1
 
     return alloc
+# ============================================================
+# MEMBER STATUS FUNCTION
+# ============================================================
 
+def set_member_status(row, status):
+    """
+    Identify whether a row was already declared,
+    rejuvenated, or remains unassigned.
+    """
+    row = row.copy()
+    row["Member_Status"] = status
+    return row
 # ============================================================
 # LOAD DATA (UNCHANGED)
 # ============================================================
@@ -438,6 +449,9 @@ missing_hhids = hh_missing_flag[hh_missing_flag].index
 missing_df = df[df['hhid'].isin(missing_hhids)].copy()
 valid_df = df[~df['hhid'].isin(missing_hhids)].copy()
 
+# Rows that already had a member declaration
+valid_df["Member_Status"] = "Already Declared"
+
 # -----------------------------------------
 # BEFORE ATTRIBUTION SUMMARY
 # -----------------------------------------
@@ -468,7 +482,7 @@ for _, r in missing_df.iterrows():
     )
 
     if len(members) == 0:
-        output.append(r)
+        output.append(set_member_status(r, "Unassigned"))
         continue
 
     city = members['City_Group'].iloc[0]
@@ -501,7 +515,7 @@ for _, r in missing_df.iterrows():
         fallback['Age_Group'] = m['Age_Group']
         fallback['HH_Size_Group'] = size
         fallback['City_Group'] = city
-        output.append(fallback)
+        output.append(set_member_status(fallback, "Rejuvenated"))
         continue
 
     d = d.copy()
@@ -536,7 +550,7 @@ for _, r in missing_df.iterrows():
         fallback['Age_Group'] = m['Age_Group']
         fallback['HH_Size_Group'] = size
         fallback['City_Group'] = city
-        output.append(fallback)
+        output.append(set_member_status(fallback, "Rejuvenated"))
         continue
 
     temp_df = pd.DataFrame({
@@ -646,14 +660,24 @@ for _, r in missing_df.iterrows():
         new_row['Share'] = share_list[i]
         new_row['New_Share'] = new_share_list[i]
 
-        output.append(new_row)
+        output.append(set_member_status(new_row, "Rejuvenated"))
 
 # ============================================================
 # FINAL OUTPUT (UNCHANGED)
 # ============================================================
 
 final_missing = pd.DataFrame(output)
-final = pd.concat([valid_df, final_missing], ignore_index=True)
+
+# Ensure unresolved rows are explicitly identified
+if not final_missing.empty:
+    final_missing["Member_Status"] = (
+        final_missing["Member_Status"].fillna("Unassigned")
+    )
+
+final = pd.concat(
+    [valid_df, final_missing],
+    ignore_index=True
+)
 
 final['duration'] = final['duration_seconds'].apply(
     lambda x: str(timedelta(seconds=int(x)))

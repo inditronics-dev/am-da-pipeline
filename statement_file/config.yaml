@@ -1,0 +1,60 @@
+CITY_GROUP_MAPPING:
+  yerevan: "Yerevan"
+  vanadzor: "Rest of Armenia"
+  artashat: "Rest of Armenia"
+  hrazdan: "Rest of Armenia"
+  gavar: "Rest of Armenia"
+  gyumri: "Rest of Armenia"
+  ashtarak: "Rest of Armenia"
+  vagharshapat: "Rest of Armenia"
+  ijevan: "Rest of Armenia"
+  kapan: "Rest of Armenia"
+  yeghegnadzor: "Rest of Armenia"
+
+CHANNEL_CATEGORY_MAPPING:
+  1: "National Channel"
+  2: "National Channel"
+  3: "National Channel"
+  4: "National Channel"
+  5: "National Channel"
+  6: "National Channel"
+  7: "Non - National Channel"
+  8: "Non - National Channel"
+  9: "Non - National Channel"
+  10: "Non - National Channel"
+  11: "Non - National Channel"
+  12: "Non - National Channel"
+  13: "Non - National Channel"
+  14: "Non - National Channel"
+  15: "Non - National Channel"
+
+
+TARGET_MOS:
+  - "IPTV"
+  - "CABLE OPERATOR"
+
+MOS_VALUE_MAPPING:
+  "1": "ANTENNA"
+  "2": "ANTENNA"
+  "3": "CABLE OPERATOR"
+  "4": "IPTV"
+  "5": "SATELLITE"
+  "6": "NA"
+
+
+TARGET_CHANNEL_IDS:
+  - 7
+  - 8
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+
+
+EMAIL:
+  SENDER_EMAIL: "senthil.inditronics@gmail.com"
+  APP_PASSWORD: "vtxe wybz lpjd cbvl"
+  RECEIVER_EMAILS:
+    - "senthil.kumar@inditronics.com" 
